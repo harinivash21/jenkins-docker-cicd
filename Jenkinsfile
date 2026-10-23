@@ -30,37 +30,43 @@ pipeline {
             }
         }
 
+       
         stage('Push Image to Docker Hub') {
             steps {
-                script {
-                    withCredentials([usernamePassword(
-                        credentialsId: 'dockerhub-creds',
-                        usernameVariable: 'DH_USER',
-                        passwordVariable: 'DH_TOKEN'
-                    )]) {
-                        bat '''
-                            @echo off
-                            echo %DH_TOKEN% | docker login -u %DH_USER% --password-stdin
-                            if errorlevel 1 exit /b 1
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'DH_USER',
+                    passwordVariable: 'DH_TOKEN'
+            )]) {
+                powershell '''
+                    $ErrorActionPreference = "Stop"
 
-                            docker tag devops-web:latest %DH_USER%/devops-web:%BUILD_NUMBER%
-                            if errorlevel 1 exit /b 1
+                    $env:DH_TOKEN | docker login `
+                        --username $env:DH_USER `
+                        --password-stdin
 
-                            docker tag devops-web:latest %DH_USER%/devops-web:latest
-                            if errorlevel 1 exit /b 1
-
-                            docker push %DH_USER%/devops-web:%BUILD_NUMBER%
-                            if errorlevel 1 exit /b 1
-
-                            docker push %DH_USER%/devops-web:latest
-                            if errorlevel 1 exit /b 1
-
-                            docker logout
-                        '''
+                    if ($LASTEXITCODE -ne 0) {
+                        throw "Docker Hub login failed"
                     }
-                }
+
+                    docker tag devops-web:latest "$env:DH_USER/devops-web:$env:BUILD_NUMBER"
+                    if ($LASTEXITCODE -ne 0) { throw "Version tag failed" }
+
+                    docker tag devops-web:latest "$env:DH_USER/devops-web:latest"
+                    if ($LASTEXITCODE -ne 0) { throw "Latest tag failed" }
+
+                    docker push "$env:DH_USER/devops-web:$env:BUILD_NUMBER"
+                    if ($LASTEXITCODE -ne 0) { throw "Version push failed" }
+
+                    docker push "$env:DH_USER/devops-web:latest"
+                    if ($LASTEXITCODE -ne 0) { throw "Latest push failed" }
+
+                    docker logout
+                '''
             }
         }
+    }
+
 
         stage('Deploy Container') {
             steps {

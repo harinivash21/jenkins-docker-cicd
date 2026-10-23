@@ -9,6 +9,7 @@ pipeline {
     }
 
     stages {
+
         stage('Checkout') {
             steps {
                 checkout scm
@@ -30,7 +31,7 @@ pipeline {
             }
         }
 
-        stage('Push Image to Docker Hub') {
+        stage('Test Docker Hub Login') {
             steps {
                 withCredentials([
                     usernamePassword(
@@ -50,14 +51,43 @@ pipeline {
                             throw "Docker Hub token is missing"
                         }
 
-                        Write-Output "Docker Hub credentials loaded."
+                        Write-Output "Testing saved Jenkins credentials..."
+                        Write-Output "Username: $env:DH_USER"
 
                         $env:DH_TOKEN | docker login `
                             --username $env:DH_USER `
                             --password-stdin
 
                         if ($LASTEXITCODE -ne 0) {
-                            throw "Docker Hub login failed"
+                            throw "Docker Hub rejected the Jenkins credential"
+                        }
+
+                        Write-Output "Docker Hub login succeeded from Jenkins."
+
+                        docker logout
+                    '''
+                }
+            }
+        }
+
+        stage('Push Image to Docker Hub') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'dockerhub-creds',
+                        usernameVariable: 'DH_USER',
+                        passwordVariable: 'DH_TOKEN'
+                    )
+                ]) {
+                    powershell '''
+                        $ErrorActionPreference = "Stop"
+
+                        $env:DH_TOKEN | docker login `
+                            --username $env:DH_USER `
+                            --password-stdin
+
+                        if ($LASTEXITCODE -ne 0) {
+                            throw "Docker Hub login failed during push stage"
                         }
 
                         docker tag devops-web:latest "$env:DH_USER/devops-web:$env:BUILD_NUMBER"
@@ -104,6 +134,7 @@ pipeline {
         success {
             echo 'CI/CD pipeline completed successfully!'
         }
+
         failure {
             echo 'Pipeline failed. Check the console output.'
         }
